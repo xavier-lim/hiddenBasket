@@ -1,0 +1,433 @@
+---
+title: 'HiddenBasket: The Most Undervalued NBA Players'
+author: 'By: Xaiver Lim'
+date: 'April 3, 2020'
+output:
+  pdf_document: default
+  html_document: default
+toc: true 
+---
+
+\pagebreak
+
+# Introduction
+
+The purpose of this project is to create a model that will determine which basketball players in the NBA are the most undervalued based on their salaries (as of the 2019-2020 season) and performance statistics (e.g. average points, rebounds, assists, and blocks per game). 
+
+\  
+
+This concept of finding undervalued athletes comes from the book and movie _Moneyball_, based on a true story about the Oakland Athletics and their general manager Billy Beane who was tasked with assembling a competitive baseball team with a limited salary budget. In 2002, the Oakland Athletics had one of the lowest team payrolls in Major League Baseball which made it difficult to pay high salaries required to attract star baseball players. Thus, Beane had to come up with a creative way to form a team given these salary constraints. He decided to use statistical analysis to find and acquire undervalued baseball players. Ultimately, this method of scouting was intended to help small-market Major League Baseball teams, like Oakland, compete with larger-market teams. 
+
+\  
+
+The main objective of this current project is to explore whether the concept of "Moneyball" can be applied to basketball. Statistical analyses performed in this project include multiple logistic regression and discriminant analysis. Prior to the analysis, each player will be assigned to a salary tier based on their salary. Then, logistic regression will be performed to analyze which combination of performance statistics significantly predict player salaries. After determining these variables, they will be incorporated into a discriminant analysis to predict which salary tier each player should belong to based on their performance statistics. Ideally, the most undervalued players will be those who are predicted to be in a high salary tier but are actually in a low salary tier.
+
+\pagebreak
+
+# Packages
+```{r}
+library(tidyverse)
+library(readxl)
+library(MASS)
+library(conflicted)
+library(plyr)
+```
+
+```{r}
+options(scipen=10000)
+```
+
+```{r}
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+conflict_prefer("mutate", "plyr")
+conflict_prefer("count", "dplyr")
+conflict_prefer("summarize", "plyr")
+```
+
+\pagebreak
+
+# Data Cleansing
+There are three data sets used in this project collected from *[https://www.basketball-reference.com/](https://www.basketball-reference.com/)*:
+
+* The **Player Performance Statistics** data set presents information and performance statistics about each player such as their position (Pos), age (Age), team (Tm), games played (G), rebounds per game (REB), assists per game (AST), blocks per game (BLK), and points per game (PTS).
+
+* The **Player Efficiency Rating** data set presents the player efficiency rating (PER) of each player. 
+  + PER is an advanced metric developed used in basketball to measure the overall rating of a player's per-minute statistical production. The formula for PER is quite complex but, in simple terms, it sums up all the good things a player does and subtracts negative things a player does relative to their team's style of play. To learn more about how PER is calculated: *[https://www.basketball-reference.com/about/per.html](https://www.basketball-reference.com/about/per.html)*
+
+* The **Player Salaries** data set presents the salaries of all NBA players for the 2019-2020 season.
+
+\  
+
+Players who have played less than 10 games in the 2019-2020 season will be removed from the data set due to playing too few games. I have decided to set the cutoff at 10 games because any less than that, players would have played less than 15% of the season which is too small of a sample.
+
+After removing these players from the data set, the three tables will be joined together to show each player's performance statistics and their corresponding salary.
+
+Please note that since there are over 400 players in the NBA, only the first 10 entries of each table will be presented throughout the data cleansing portion of this report. However, a count of entries will be taken after each phase of the data cleansing to monitor changes to the number of entries.
+
+\newpage
+
+**Player Performance Statistics**
+```{r}
+gamePerformance <- read_excel("nba_data.xlsx", sheet = "GamePerformance")
+gamePerformance %>% slice(1:10)
+```
+
+
+```{r}
+count(gamePerformance)
+```
+There are a total of 514 players in this data set.
+
+\  
+
+Now let's take a look at the summary statistics of the number of games played by the players in the data set.
+
+```{r}
+gamePerformance %>% select(G) %>% summary()
+```
+As you can see, there is quite a lot of variability in the number of games played as the most games played by a player was 66 games and the least number of games played by a player was 1.
+
+\  
+
+Now, I will remove the players who have played less than 10 games.
+
+```{r}
+gamePerformance %>% filter(G > 9) -> gamePerformance_tidy
+gamePerformance_tidy %>% slice(1:10)
+```
+ 
+```{r}
+count(gamePerformance_tidy)
+```
+After removing 68 players who played less than 10 games, 446 players remained.
+
+\  
+
+**Player Efficiency Rating (PER)**
+```{r}
+efficiency <- read_excel("nba_data.xlsx", sheet = "EfficiencyRating")
+efficiency %>% slice(1:10)
+```
+
+\  
+
+**Player Salaries**
+```{r}
+salaries <- read_excel("nba_data.xlsx", sheet = "Salaries")
+salaries %>% slice(1:10)
+```
+
+\  
+
+PER will now be added to the data set containing all the other variables.
+```{r}
+all_stats <- inner_join(gamePerformance_tidy, efficiency, by="Player")
+all_stats %>% slice(1:10)
+```
+
+Now that PER has been added to the **Player Performance Statistics** data set, we must attach the player salaries to each corresponding player.
+
+\  
+
+```{r}
+nba <- inner_join(all_stats, salaries, by="Player")
+nba %>% slice(1:10)
+```
+
+
+```{r}
+count(nba)
+```
+After joining the three tables by player name, 410 players remain. Only players who appeared in all three data sets were included into this final compiled data set.
+
+\pagebreak
+
+## Defining Salary Tiers
+In order to perform a logistic regression and discriminant analysis later on, an ordinal response needs to be defined. Thus, salary tiers will be created to group the players.
+
+As you can see below from the summary statistics and boxplot of the player salaries:
+
+* The 25th percentile of salaries lie approximately below $2 million
+
+* The middle of the interquartile range (IQR) is at approximately $5 million
+
+* The 75th percentile of salaries appears to be slightly above $10 million
+
+* The upper outliers appear to be salaries over $25 million
+
+\  
+
+```{r}
+nba %>% select(Salary) %>% summary()
+```
+\  
+
+```{r fig.height = 2.5, fig.width = 3}
+ggplot(nba, aes(y = Salary)) + geom_boxplot()
+```
+
+\  
+
+Based on the inferences made from the summary statistics and boxplot of the player salaries, I will split up the players into the following salary tiers: 
+
+* **Tier 1**: less than $2 million
+
+* **Tier 2**: $2 to 5 million
+
+* **Tier 3**: $5 to 10 million
+
+* **Tier 4**: $10 to 25 million
+
+* **Tier 5**: more than $25 million
+
+\  
+
+```{r}
+nba %>% mutate(Tier=ifelse(Salary < 2000000,"tier1", 
+                    ifelse(Salary < 5000000,"tier2",
+                    ifelse(Salary < 10000000,"tier3",
+                    ifelse(Salary < 25000000,"tier4","tier5"))))
+               ) -> nba_tiers
+nba_tiers <- nba_tiers %>% mutate(Tier = factor(Tier))
+nba_tiers %>% slice(1:10)
+```
+
+\  
+
+Now each row of this data set consists of each player and their performance statistics, salary, and salary tier.
+
+
+\pagebreak
+
+# Data Analysis 
+
+## Correlation Between Variables
+
+Before creating a regression model, let's first take a look at the correlation between salary (response variable) and the possible predictor (independent) variables.
+
+\  
+
+```{r}
+nba_tiers %>% select(Salary, REB, AST, BLK, PTS, PER) %>% cor() -> COR
+COR[1,]
+```
+
+\  
+
+```{r fig.height = 5, fig.width = 10}
+nba_tiers %>%
+  pivot_longer((c(REB, AST, BLK, PTS, PER)), names_to = "xname", values_to = "x") %>%
+  ggplot(aes(x = x, y = Salary, colour=Tier)) + geom_point() +
+  facet_wrap(~xname, scales = "free") -> g1
+g1
+```
+
+\  
+
+As you can see from the correlations and scatter plots, the direction of all correlations are positive. This means a higher salary is associated with scoring many points and having a high player efficiency rating. In addition, a higher salary is associated with getting a lot of assists, blocks, and rebounds.
+
+\newpage
+
+However, it is important to note that these relationships vary in terms of correlation strength: 
+
+* Salary is strongly correlated with Points Per Game (PTS)
+
+* Salary is moderately correlated with Rebounds Per Game (REB), Assists Per Game (AST), and Player Efficiency Rating (PER)
+
+* Salary is weakly associated with Blocks Per Game (BLK)
+
+```{r fig.height = 5, fig.width = 10}
+nba_tiers %>%
+  pivot_longer(c(PTS, REB, AST, BLK, PER), names_to = "xname", values_to = "x") %>%
+  ggplot(aes(x = x, y = Salary)) + geom_point() + geom_smooth() +
+  facet_wrap(~xname, scales = "free") -> g2
+g2
+```
+
+\pagebreak
+
+## Logistic Regression
+Multiple logistic reggression uses predictor variables to model the probability of a certain outcome occurring or a subject belonging to a specific group. The multiple logistic regression model below predicts a player's salary tier based on their average rebounds, assists, blocks, and points per game, along with player efficiency rating (PER). Since the salary tier is an ordered categorical variable (tier 1 to tier 5), an ordered logistic model will be created using *polr*.
+
+\  
+
+```{r}
+nba.1 <- polr(Tier ~ REB + AST + BLK + PTS + PER , data = nba_tiers)
+drop1(nba.1, test="Chisq")
+```
+
+\  
+
+The results of the regression model show that REB, AST, BLK, PTS, and PER are all significant as they have p-values of less than 0.05. Thus, all the explanatory variables have some impact on the salary tier, and none of them should be removed from the model.
+
+\ 
+
+\  
+
+```{r}
+nba.1$coefficients
+```
+
+\  
+
+With the exception of PER, all of the coefficients are positive which means the model predicts an increase in REB, AST, BLK, or PTS will result in an increase in salary. The model also predicts an increase in PER will result in an decrease in salary.
+
+\  
+
+Now these variables will be incorporated into a discriminant analysis.
+
+
+\pagebreak
+
+## Discriminant Analysis
+
+A discriminant analysis predicts group membership based on numeous factors (measured variables), assuming the groups are known. This type of analysis can be performed to predict a player's salary tier based on their performance statistics.
+
+\  
+
+```{r}
+salaries.1 <- lda(Tier ~ REB + AST + BLK + PTS + PER, data = nba_tiers)
+salaries.1
+```
+
+\  
+
+As you can see from looking at the group means, the higher the salary tier, the greater the REB, AST, BLK, PTS, and PER. However, there are a few exceptions to this general trend, especially when looking at tier 4.
+
+The number of linear discriminants is either the number of variables or number of groups - 1, depending on which value is smaller. Since there are 5 variables (REB, AST, BLK, PTS, and PER) and 5 groups (tier 1 to 5), there are 4 linear discrimnants (LD1 to LD4). Each linear discriminant is a linear combination of features (REB, AST, BLK, PTS, and PER) that characterizes a certain group of player.
+
+Now focusing on the proportion of trace, LD1 makes up most of the proportion of trace (0.9482). Thus, we should primarily be focused on LD1. 
+
+Moving onto the coefficients of the linear discriminanats, LD1 is positive when REB, AST, BLK, and PTS are high since their coefficients under LD1 are positive. 
+
+Finally, since the LD1 coefficient of PER (-0.03129032) is close to 0, PER will have close to no impact on the model.
+
+\ 
+
+Now, this model will be used to predict which salary tier each player belongs to.
+
+\  
+
+```{r}
+salaries.pred <- predict(salaries.1)
+pp <- round(salaries.pred$posterior, 3)
+predictions <- cbind(nba_tiers, pp)
+predictions %>% slice(1:10)
+```
+I have combined player statistics, actual player salary tier, and tier predictions into one table.
+
+\  
+
+Now let's take a look at side-by-side boxplots to see the relationship between LD1 and the salary tiers. 
+
+```{r fig.height = 2.5, fig.width = 3}
+tierLD <- cbind(nba_tiers, salaries.pred$x, pp)
+ggplot(tierLD, aes(x = Tier, y = LD1)) + geom_boxplot()
+```
+
+Since LD1 is positive when REB, AST, BLK, and PTS are high and these stats are associated with a greater salary tier, higher tiers have a greater LD1 score.
+
+
+\pagebreak
+
+# Statistical Inferences
+
+Below is a frequency table comparing each player's actual salary tier (obs) to their predicted salary tier (pred).
+
+\  
+
+```{r}
+table(obs = nba_tiers$Tier, pred = salaries.pred$class)
+```
+\  
+
+The most undervalued player would be located in the cell with an observed (acutal) tier of tier 1 and a predicted tier of tier 5. This player makes less than $2 million but are predicted to play at the level of someone who makes more than \$25 million.
+
+\  
+
+```{r}
+data.frame(nba$Player, obs = nba_tiers$Tier, pred = salaries.pred$class) %>%
+  filter(obs == "tier1", pred == "tier5") -> pool1
+left_join(pool1, nba, by = c("nba.Player" = "Player")) -> Pool1
+Pool1
+```
+
+\  
+
+Devonte' Graham is the player in tier 1 who was predicted to be in tier 5. Let's compare his performance statistics to the league average.
+
+\  
+
+**League Average**
+```{r}
+nba_tiers %>% summarize(REB = mean(REB), AST = mean(AST), BLK = mean(BLK), 
+                        PTS = mean(PTS), PER = mean(PER), Salary = mean(Salary)
+                        ) -> nba_avg
+league_avg <- round(nba_avg, 1) %>% mutate(nba.Player = "NBA Average")
+comparison <- rbind.fill(Pool1, league_avg)
+comparison
+```
+
+\  
+
+Based on the model, it makes sense that Devonte' Graham was selected since compared to the league average, he scores a lot of points (PTS) and gets a lot of assists (AST). He is also close to the league average in rebounds (REB), blocks (BLK), and player efficiency rating (PER).
+ 
+Players who are in salary tier 2 but were predicted to be in salary tier 5 are also heavily undervalued and may be considered the next-most undervalued group of players.
+
+\  
+
+```{r}
+data.frame(nba$Player, obs = nba_tiers$Tier, pred = salaries.pred$class) %>%
+  filter(obs == "tier2", pred == "tier5") -> pool2
+left_join(pool2, nba, by = c("nba.Player" = "Player")) -> Pool2
+comparison2 <- rbind.fill(Pool2, league_avg)
+comparison2
+```
+
+This is the pool of players in tier 2 but who play as if they are in tier 5. Based on the model, it makes sense that these players were selected since compared to the league average, they score a lot of points (PTS), get a lot of rebounds (REB), assists (AST), and blocks (BLK). They also have high player efficiency ratings (PER).
+
+\  
+
+Finally, to further show how undervalued each of these players are, let's take a look at the (posterior) probability of each of these players being in each tier according to the model. 
+
+```{r}
+tier_predictions <- predictions %>% select(c(Player, tier1, tier2, tier3, tier4, tier5))
+left_join(pool2, tier_predictions, by = c("nba.Player" = "Player"))
+```
+
+According to the model predictions, there was over a 70% chance that Bam Adebayo, John Collins, Domantas Sabonis, and Pascal Siakam would belong to tier 5. This further supports the notion that these players are severely undervalued based on the parameters of the model.
+
+\pagebreak
+
+# Conclusion
+
+**Correlation Between Variables**
+ 
+Salary has a:
+
+* strong positive correlation with Points Per Game 
+
+* moderate positive correlation with Rebounds, Assists, and Steals Per Game
+
+* moderate positive correlation with Player Efficiency Rating (PER)
+
+* weak positive correlation with Blocks Per Game. 
+
+It intuitively makes sense that points per game is strongly correlated with salary since the primary objective of basketball is to score, so players who score a lot of points should be paid the most. Also, it intuitively makes sense that defensive statistics such as blocks are not as strongly correlated to salary as defense is often overlooked by many teams.
+
+\  
+
+**Logistic Regression**
+  
+The results of the regression model show that REB, AST, BLK, PTS, and PER all have some impact on salary tier. In addition, with the exception of PER, all of the coefficients are positive which means the model predicts an increase in REB, AST, BLK, or PTS will result in an increase in salary.
+
+One may assume that elite players who get paid a lot should be efficient and thus the coefficient for player efficiency rating (PER) should be positive rather than negative. However, since elite players possess the ball more, they have more opportunities to make "mistakes" resulting in inefficiencies. Thus, it is plausible that the coefficient of PER is negative.
+
+\  
+
+**Discriminant Analysis**
+  
+Based on my model, there are numerous players who are undervalued. Specifically, Devonte' Graham, Bam Adebayo, John Collins, Shai Gilgeous-Alexander, Donovan Mitchell, Domantas Sabonis, and Pascal Siakam. The interesting thing is 4 of these 7 players have been named to the 2019-2020 All-Star Team which supports the notion that these players are playing at an elite level but are being underpaid/undervalued.
+
+The model could have also been used to predict the most overvalued players by looking at players in a high salary tier who are predicted to be in a low salary tier. However, I wanted to focus on determining the most undervalued players because I believe it is more important for NBA teams to consider. In conclusion, this model can be used by teams to generate a short list of players to target in free agency.

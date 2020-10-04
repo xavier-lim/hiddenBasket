@@ -43,6 +43,8 @@ As you can see from the boxplots, LD1 effectively distinguished the tiers. The h
 ![LD](https://github.com/xavier-lim/hiddenbasket/blob/master/images/LD.png)
 
 ## Tableau Project Dashboards
+Interactive Version: [HiddenBasket Dashboards](https://xavier-lim.github.io/HiddenBasketDashboards.html)
+
 ![Correlations](https://github.com/xavier-lim/hiddenbasket/blob/master/images/correlations.png)
 
 ---

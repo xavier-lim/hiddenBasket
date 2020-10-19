@@ -63,5 +63,5 @@ In conclusion, points per game (PTS), assists per game (AST), rebounds per game 
 2.	John Hollinger, analyst and former Vice President of Basketball Operations for the Memphis Grizzlies developed the player efficiency rating (PER) to produce a per-minute player performance rating. To learn more, visit:  https://www.basketball-reference.com/about/per.html
 
 ## Author
-* **Xavier Lim** | [LinkedIn](https://www.linkedin.com/in/xavier-lim14/) | [Portfolio Website]( https://xavier-lim.github.io/)
+* **Xavier Lim** | [LinkedIn](https://www.linkedin.com/in/xavier-lim14/) | [Portfolio Website]( https://xavier-lim.github.io/)  |  [Tableau Public](https://public.tableau.com/profile/xavier.lim#!/)
 
